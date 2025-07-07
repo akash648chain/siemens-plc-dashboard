@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔧 Siemens PLC QA Assistant</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --siemens-blue: #009999;
+            --siemens-dark: #003366;
+            --siemens-light: #E6F7F7;
+            --success-green: #28a745;
+            --warning-orange: #ffc107;
+            --danger-red: #dc3545;
+        }
+        
+        body {
+            background-color: #f8f9fa;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        .navbar {
+            background: linear-gradient(135deg, var(--siemens-blue), var(--siemens-dark));
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .navbar-brand {
+            font-weight: bold;
+            font-size: 1.3rem;
+        }
+        
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .card-header {
+            background: linear-gradient(135deg, var(--siemens-blue), var(--siemens-dark));
+            color: white;
+            border-radius: 15px 15px 0 0 !important;
+            font-weight: 600;
+        }
+        
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+        }
+        
+        .status-ready { background-color: var(--success-green); }
+        .status-initializing { background-color: var(--warning-orange); }
+        .status-error { background-color: var(--danger-red); }
+        .status-not-started { background-color: #6c757d; }
+        
+        .chat-container {
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 15px;
+            background: white;
+            border-radius: 10px;
+        }
+        
+        .message {
+            margin-bottom: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        .message-question {
+            background: var(--siemens-light);
+            border-left: 4px solid var(--siemens-blue);
+        }
+        
+        .message-answer {
+            background: #f8f9fa;
+            border-left: 4px solid var(--success-green);
+        }
+        
+        .message-error {
+            background: #f8d7da;
+            border-left: 4px solid var(--danger-red);
+        }
+        
+        .example-btn {
+            margin: 5px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+        
+        .system-info {
+            font-size: 0.9rem;
+        }
+        
+        .loading-spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid var(--siemens-blue);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--siemens-blue), var(--siemens-dark));
+            border: none;
+            border-radius: 25px;
+            padding: 10px 25px;
+            font-weight: 600;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--siemens-dark), var(--siemens-blue));
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .form-control {
+            border-radius: 25px;
+            border: 2px solid #e9ecef;
+            padding: 12px 20px;
+        }
+        
+        .form-control:focus {
+            border-color: var(--siemens-blue);
+            box-shadow: 0 0 0 0.2rem rgba(0, 153, 153, 0.25);
+        }
+        
+        .timestamp {
+            font-size: 0.8rem;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+        
+        .sources-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e9ecef;
+        }
+        
+        .source-item {
+            background: #f8f9fa;
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        
+        @media (max-width: 768px) {
+            .container-fluid {
+                padding: 10px;
+            }
+            
+            .card {
+                margin-bottom: 15px;
+            }
+            
+            .example-btn {
+                display: block;
+                width: 100%;
+                margin: 5px 0;
+            }
+            
+            .chat-container {
+                max-height: 400px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="fas fa-cogs"></i> Siemens PLC QA Assistant
+            </span>
+            <div class="d-flex align-items-center">
+                <span class="status-indicator" id="statusIndicator"></span>
+                <span class="text-white" id="statusText">Not Started</span>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container-fluid mt-3">
+        <div class="row">
+            <!-- Main Chat Area -->
+            <div class="col-lg-8 col-md-12">
+                <!-- Status Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-info-circle"></i> System Status
+                    </div>
+                    <div class="card-body">
+                        <div id="statusMessage" class="mb-3">Ready to initialize assistant...</div>
+                        <button id="initializeBtn" class="btn btn-primary">
+                            <i class="fas fa-play"></i> Initialize Assistant
+                        </button>
+                        <button id="clearHistoryBtn" class="btn btn-outline-secondary ms-2" style="display: none;">
+                            <i class="fas fa-trash"></i> Clear History
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Question Input -->
+                <div class="card" id="questionCard" style="display: none;">
+                    <div class="card-header">
+                        <i class="fas fa-question-circle"></i> Ask Your PLC Question
+                    </div>
+                    <div class="card-body">
+                        <div class="input-group">
+                            <input type="text" class="form-control" id="questionInput" 
+                                   placeholder="e.g., How do I configure PROFINET communication?">
+                            <button class="btn btn-primary" id="askBtn">
+                                <i class="fas fa-paper-plane"></i> Ask
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Chat History -->
+                <div class="card" id="chatCard" style="display: none;">
+                    <div class="card-header">
+                        <i class="fas fa-comments"></i> Conversation
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="chat-container" id="chatContainer">
+                            <div class="text-center text-muted">
+                                <i class="fas fa-comments fa-3x mb-3"></i>
+                                <p>Your conversation will appear here</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sidebar -->
+            <div class="col-lg-4 col-md-12">
+                <!-- Example Questions -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-lightbulb"></i> Example Questions
+                    </div>
+                    <div class="card-body">
+                        <div id="exampleQuestions">
+                            <div class="text-center">
+                                <div class="loading-spinner"></div>
+                                <p class="mt-2">Loading examples...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Information -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-server"></i> System Info
+                    </div>
+                    <div class="card-body system-info">
+                        <div id="systemInfo">
+                            <div class="text-center">
+                                <div class="loading-spinner"></div>
+                                <p class="mt-2">Loading system info...</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="card">
+                    <div class="card-header">
+                        <i class="fas fa-bolt"></i> Quick Actions
+                    </div>
+                    <div class="card-body">
+                        <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="loadHistory()">
+                            <i class="fas fa-history"></i> Reload History
+                        </button>
+                        <button class="btn btn-outline-info btn-sm w-100 mb-2" onclick="checkStatus()">
+                            <i class="fas fa-sync-alt"></i> Refresh Status
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm w-100" onclick="loadSystemInfo()">
+                            <i class="fas fa-chart-bar"></i> Update System Info
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.0/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let isInitialized = false;
+        let isAsking = false;
+
+        // DOM elements
+        const statusIndicator = document.getElementById('statusIndicator');
+        const statusText = document.getElementById('statusText');
+        const statusMessage = document.getElementById('statusMessage');
+        const initializeBtn = document.getElementById('initializeBtn');
+        const clearHistoryBtn = document.getElementById('clearHistoryBtn');
+        const questionCard = document.getElementById('questionCard');
+        const chatCard = document.getElementById('chatCard');
+        const questionInput = document.getElementById('questionInput');
+        const askBtn = document.getElementById('askBtn');
+        const chatContainer = document.getElementById('chatContainer');
+        const exampleQuestions = document.getElementById('exampleQuestions');
+        const systemInfo = document.getElementById('systemInfo');
+
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', function() {
+            checkStatus();
+            loadExamples();
+            loadSystemInfo();
+            loadHistory();
+            
+            // Setup event listeners
+            initializeBtn.addEventListener('click', initializeAssistant);
+            askBtn.addEventListener('click', askQuestion);
+            clearHistoryBtn.addEventListener('click', clearHistory);
+            
+            questionInput.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter' && !isAsking) {
+                    askQuestion();
+                }
+            });
+        });
+
+        // Check system status
+        function checkStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    updateStatus(data.status, data.message);
+                    isInitialized = data.ready;
+                    
+                    if (isInitialized) {
+                        questionCard.style.display = 'block';
+                        chatCard.style.display = 'block';
+                        clearHistoryBtn.style.display = 'inline-block';
+                        initializeBtn.innerHTML = '<i class="fas fa-check"></i> Assistant Ready';
+                        initializeBtn.disabled = true;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error checking status:', error);
+                    updateStatus('error', 'Failed to check status');
+                });
+        }
+
+        // Update status display
+        function updateStatus(status, message) {
+            statusIndicator.className = `status-indicator status-${status}`;
+            statusText.textContent = status.charAt(0).toUpperCase() + status.slice(1).replace('-', ' ');
+            statusMessage.textContent = message;
+        }
+
+        // Initialize assistant
+        function initializeAssistant() {
+            if (isInitialized) return;
+            
+            initializeBtn.disabled = true;
+            initializeBtn.innerHTML = '<div class="loading-spinner"></div> Initializing...';
+            
+            fetch('/api/initialize', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Start polling for status updates
+                    pollStatus();
+                } else {
+                    updateStatus('error', data.message);
+                    initializeBtn.disabled = false;
+                    initializeBtn.innerHTML = '<i class="fas fa-play"></i> Initialize Assistant';
+                }
+            })
+            .catch(error => {
+                console.error('Error initializing:', error);
+                updateStatus('error', 'Failed to initialize');
+                initializeBtn.disabled = false;
+                initializeBtn.innerHTML = '<i class="fas fa-play"></i> Initialize Assistant';
+            });
+        }
+
+        // Poll status during initialization
+        function pollStatus() {
+            const interval = setInterval(() => {
+                checkStatus();
+                
+                if (isInitialized || statusText.textContent === 'Error') {
+                    clearInterval(interval);
+                }
+            }, 2000);
+        }
+
+        // Ask question
+        function askQuestion() {
+            if (!isInitialized || isAsking) return;
+            
+            const question = questionInput.value.trim();
+            if (!question) {
+                alert('Please enter a question');
+                return;
+            }
+            
+            isAsking = true;
+            askBtn.disabled = true;
+            askBtn.innerHTML = '<div class="loading-spinner"></div> Thinking...';
+            
+            // Add question to chat
+            addMessageToChat('question', question);
+            
+            fetch('/api/ask', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ question: question })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addMessageToChat('answer', data.answer, data.sources, data.timestamp);
+                } else {
+                    addMessageToChat('error', data.error || 'Unknown error occurred');
+                }
+            })
+            .catch(error => {
+                console.error('Error asking question:', error);
+                addMessageToChat('error', 'Network error occurred');
+            })
+            .finally(() => {
+                isAsking = false;
+                askBtn.disabled = false;
+                askBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Ask';
+                questionInput.value = '';
+            });
+        }
+
+        // Add message to chat
+        function addMessageToChat(type, content, sources = null, timestamp = null) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message message-${type}`;
+            
+            let html = '';
+            
+            if (type === 'question') {
+                html = `
+                    <div class="fw-bold mb-2">
+                        <i class="fas fa-user"></i> You asked:
+                    </div>
+                    <div>${content}</div>
+                `;
+            } else if (type === 'answer') {
+                html = `
+                    <div class="fw-bold mb-2">
+                        <i class="fas fa-robot"></i> Assistant:
+                    </div>
+                    <div>${content}</div>
+                `;
+                
+                if (sources && sources.length > 0) {
+                    html += `
+                        <div class="sources-section">
+                            <div class="fw-bold mb-2">
+                                <i class="fas fa-book"></i> Sources (${sources.length}):
+                            </div>
+                    `;
+                    
+                    sources.forEach((source, index) => {
+                        html += `
+                            <div class="source-item">
+                                <strong>${index + 1}. ${source.metadata.title || 'Document'}</strong>
+                                <div class="text-muted">${source.content}</div>
+                            </div>
+                        `;
+                    });
+                    
+                    html += '</div>';
+                }
+                
+                if (timestamp) {
+                    html += `<div class="timestamp">${new Date(timestamp).toLocaleString()}</div>`;
+                }
+            } else if (type === 'error') {
+                html = `
+                    <div class="fw-bold mb-2 text-danger">
+                        <i class="fas fa-exclamation-triangle"></i> Error:
+                    </div>
+                    <div>${content}</div>
+                `;
+            }
+            
+            messageDiv.innerHTML = html;
+            
+            // Clear placeholder if exists
+            if (chatContainer.children.length === 1 && 
+                chatContainer.firstElementChild.classList.contains('text-center')) {
+                chatContainer.innerHTML = '';
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Load example questions
+        function loadExamples() {
+            fetch('/api/examples')
+                .then(response => response.json())
+                .then(data => {
+                    let html = '';
+                    
+                    data.examples.forEach(category => {
+                        html += `
+                            <div class="mb-3">
+                                <div class="fw-bold mb-2">${category.category}</div>
+                        `;
+                        
+                        category.questions.forEach(question => {
+                            html += `
+                                <button class="btn btn-outline-primary btn-sm example-btn" 
+                                        onclick="setQuestion('${question.replace(/'/g, "\\'")}')">
+                                    ${question}
+                                </button>
+                            `;
+                        });
+                        
+                        html += '</div>';
+                    });
+                    
+                    exampleQuestions.innerHTML = html;
+                })
+                .catch(error => {
+                    console.error('Error loading examples:', error);
+                    exampleQuestions.innerHTML = '<p class="text-danger">Failed to load examples</p>';
+                });
+        }
+
+        // Set question from example
+        function setQuestion(question) {
+            questionInput.value = question;
+            questionInput.focus();
+        }
+
+        // Load system information
+        function loadSystemInfo() {
+            fetch('/api/system-info')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.system_info) {
+                        const info = data.system_info;
+                        systemInfo.innerHTML = `
+                            <div class="row">
+                                <div class="col-6"><strong>Platform:</strong></div>
+                                <div class="col-6">${info.platform}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6"><strong>Python:</strong></div>
+                                <div class="col-6">${info.python_version}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6"><strong>CPU:</strong></div>
+                                <div class="col-6">${info.cpu_usage}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6"><strong>Memory:</strong></div>
+                                <div class="col-6">${info.memory_usage}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6"><strong>Available:</strong></div>
+                                <div class="col-6">${info.memory_available}</div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6"><strong>Disk:</strong></div>
+                                <div class="col-6">${info.disk_usage}</div>
+                            </div>
+                        `;
+                    } else {
+                        systemInfo.innerHTML = `<p class="text-warning">${data.error}</p>`;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading system info:', error);
+                    systemInfo.innerHTML = '<p class="text-danger">Failed to load system info</p>';
+                });
+        }
+
+        // Load chat history
+        function loadHistory() {
+            fetch('/api/history')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.history && data.history.length > 0) {
+                        chatContainer.innerHTML = '';
+                        data.history.forEach(entry => {
+                            addMessageToChat('question', entry.question);
+                            addMessageToChat('answer', entry.answer, entry.sources, entry.timestamp);
+                        });
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading history:', error);
+                });
+        }
+
+        // Clear chat history
+        function clearHistory() {
+            if (confirm('Are you sure you want to clear the chat history?')) {
+                fetch('/api/clear-history', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        chatContainer.innerHTML = `
+                            <div class="text-center text-muted">
+                                <i class="fas fa-comments fa-3x mb-3"></i>
+                                <p>Your conversation will appear here</p>
+                            </div>
+                        `;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error clearing history:', error);
+                });
+            }
+        }
+    </script>
+</body>
+</html>
