@@ -51,7 +51,12 @@ def index():
 @app.route('/health')
 def health_check():
     """Health check endpoint for load balancers"""
-    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+    return jsonify({
+        "status": "healthy", 
+        "timestamp": datetime.now().isoformat(),
+        "version": "simple",
+        "ready": True
+    })
 
 @app.route('/api/status')
 def api_status():
