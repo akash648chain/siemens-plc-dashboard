@@ -41,7 +41,13 @@ limiter = Limiter(
 limiter.init_app(app)
 
 # Global assistant instance
-assistant = SimplePLCQAAssistant()
+try:
+    from simple_plc_assistant import SimplePLCQAAssistant
+    assistant = SimplePLCQAAssistant()
+    logger.info("✅ Simple PLC Assistant loaded successfully")
+except Exception as e:
+    logger.error(f"❌ Failed to load assistant: {e}")
+    assistant = None
 
 @app.route('/')
 def index():
@@ -73,6 +79,12 @@ def api_status():
 def api_ask():
     """Ask a question to the assistant"""
     global assistant
+    
+    if not assistant:
+        return jsonify({
+            "success": False, 
+            "error": "Assistant not available. Please try again later."
+        }), 500
     
     data = request.get_json()
     if not data:
@@ -241,7 +253,7 @@ def internal_error(e):
     return jsonify({"error": "Internal server error"}), 500
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT', 5001))
+    port = int(os.getenv('PORT', 5002))
     debug = os.getenv('DEBUG', 'False').lower() == 'true'
     
     # Create templates directory if it doesn't exist
@@ -249,10 +261,5 @@ if __name__ == '__main__':
     
     logger.info(f"Starting PLC QA Dashboard on port {port}")
     
-    # In production, use gunicorn instead of Flask's development server
-    if debug:
-        app.run(host='0.0.0.0', port=port, debug=True)
-    else:
-        # This will only run in development
-        # In production, use: gunicorn -w 4 -b 0.0.0.0:$PORT production_dashboard:app
-        app.run(host='0.0.0.0', port=port, debug=False, threaded=True)
+    # Run Flask app (Gunicorn handles this in production)
+    app.run(host='0.0.0.0', port=port, debug=debug)
