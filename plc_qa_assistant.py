@@ -13,6 +13,14 @@ from langchain.schema import Document
 from sentence_transformers import SentenceTransformer
 import json
 from pathlib import Path
+import pypdf
+import io
+from urllib.parse import urlparse
+import hashlib
+import pickle
+from datetime import datetime
+import glob
+import re
 
 # Load environment variables
 load_dotenv()
@@ -36,18 +44,25 @@ class SiemensPLCQAAssistant:
         )
         
     def load_siemens_resources(self):
-        """Load Siemens PLC resources from various free sources"""
+        """Load Siemens PLC resources from various free sources including enhanced PDF processing"""
         
-        # Free Siemens documentation URLs
+        documents = []
+        
+        # Load local PDF files with enhanced processing
+        pdf_dirs = ["./siemens_docs", "./manuals", "./pdfs"]
+        
+        for pdf_dir_path in pdf_dirs:
+            pdf_dir = Path(pdf_dir_path)
+            if pdf_dir.exists():
+                documents.extend(self.load_pdfs_from_directory(pdf_dir))
+        
+        # Load web-based resources (kept as fallback)
         siemens_urls = [
             "https://support.industry.siemens.com/cs/document/109742464/simatic-s7-1500-system-manual?dti=0&lc=en-WW",
             "https://support.industry.siemens.com/cs/document/109478808/simatic-s7-1200-system-manual?dti=0&lc=en-WW",
             "https://support.industry.siemens.com/cs/document/109742459/simatic-s7-1500-programming-manual?dti=0&lc=en-WW"
         ]
         
-        documents = []
-        
-        # Load web-based resources
         for url in siemens_urls:
             try:
                 loader = WebBaseLoader(url)
@@ -56,24 +71,145 @@ class SiemensPLCQAAssistant:
                 print(f"Loaded {len(docs)} documents from {url}")
             except Exception as e:
                 print(f"Error loading {url}: {e}")
-                
-        # Load local PDF files if available
-        pdf_dir = Path("./siemens_docs")
-        if pdf_dir.exists():
-            for pdf_file in pdf_dir.glob("*.pdf"):
-                try:
-                    loader = PyPDFLoader(str(pdf_file))
-                    docs = loader.load()
-                    documents.extend(docs)
-                    print(f"Loaded {len(docs)} pages from {pdf_file}")
-                except Exception as e:
-                    print(f"Error loading {pdf_file}: {e}")
         
         # Add curated PLC knowledge base
         plc_knowledge = self.get_plc_knowledge_base()
         documents.extend(plc_knowledge)
         
+        print(f"Total documents loaded: {len(documents)}")
         self.documents = documents
+        return documents
+    
+    def load_pdfs_from_directory(self, pdf_dir: Path) -> List[Document]:
+        """Enhanced PDF loading with better text extraction and metadata"""
+        documents = []
+        
+        # Support multiple PDF extensions
+        pdf_patterns = ["*.pdf", "*.PDF"]
+        pdf_files = []
+        
+        for pattern in pdf_patterns:
+            pdf_files.extend(pdf_dir.glob(pattern))
+        
+        for pdf_file in pdf_files:
+            try:
+                # Use PyPDF for better text extraction
+                docs = self.extract_pdf_content(pdf_file)
+                documents.extend(docs)
+                print(f"Loaded {len(docs)} pages from {pdf_file.name}")
+            except Exception as e:
+                print(f"Error loading {pdf_file}: {e}")
+                # Try fallback method
+                try:
+                    loader = PyPDFLoader(str(pdf_file))
+                    docs = loader.load()
+                    documents.extend(docs)
+                    print(f"Fallback: Loaded {len(docs)} pages from {pdf_file.name}")
+                except Exception as fallback_error:
+                    print(f"Fallback also failed for {pdf_file}: {fallback_error}")
+        
+        return documents
+    
+    def extract_pdf_content(self, pdf_path: Path) -> List[Document]:
+        """Extract content from PDF with enhanced text processing"""
+        documents = []
+        
+        with open(pdf_path, 'rb') as file:
+            pdf_reader = pypdf.PdfReader(file)
+            
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    # Extract text from page
+                    text = page.extract_text()
+                    
+                    # Clean and process text
+                    cleaned_text = self.clean_pdf_text(text)
+                    
+                    if cleaned_text.strip():  # Only add non-empty pages
+                        # Create document with rich metadata
+                        doc = Document(
+                            page_content=cleaned_text,
+                            metadata={
+                                "source": str(pdf_path),
+                                "page": page_num + 1,
+                                "filename": pdf_path.name,
+                                "file_type": "pdf",
+                                "extraction_method": "pypdf",
+                                "processed_at": datetime.now().isoformat(),
+                                "char_count": len(cleaned_text)
+                            }
+                        )
+                        documents.append(doc)
+                        
+                except Exception as e:
+                    print(f"Error extracting page {page_num + 1} from {pdf_path}: {e}")
+                    continue
+        
+        return documents
+    
+    def clean_pdf_text(self, text: str) -> str:
+        """Clean and normalize PDF text for better processing"""
+        if not text:
+            return ""
+        
+        # Remove excessive whitespace
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Fix common PDF extraction issues
+        text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)  # Add space between lowercase and uppercase
+        text = re.sub(r'\s*\n\s*', ' ', text)  # Replace newlines with spaces
+        text = re.sub(r'\s*\f\s*', ' ', text)  # Replace form feeds
+        
+        # Remove page numbers and headers/footers patterns
+        text = re.sub(r'\b\d{1,3}\s*$', '', text)  # Remove trailing page numbers
+        text = re.sub(r'^\s*\d{1,3}\s*', '', text)  # Remove leading page numbers
+        
+        # Remove excessive punctuation
+        text = re.sub(r'[.]{3,}', '...', text)
+        text = re.sub(r'[-]{3,}', '---', text)
+        
+        return text.strip()
+    
+    def upload_pdf_file(self, uploaded_file) -> List[Document]:
+        """Process uploaded PDF file (for Streamlit file uploader)"""
+        documents = []
+        
+        try:
+            # Read uploaded file
+            pdf_bytes = uploaded_file.read()
+            pdf_reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+            
+            filename = uploaded_file.name
+            
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    text = page.extract_text()
+                    cleaned_text = self.clean_pdf_text(text)
+                    
+                    if cleaned_text.strip():
+                        doc = Document(
+                            page_content=cleaned_text,
+                            metadata={
+                                "source": f"uploaded:{filename}",
+                                "page": page_num + 1,
+                                "filename": filename,
+                                "file_type": "pdf",
+                                "extraction_method": "pypdf_upload",
+                                "processed_at": datetime.now().isoformat(),
+                                "char_count": len(cleaned_text)
+                            }
+                        )
+                        documents.append(doc)
+                        
+                except Exception as e:
+                    print(f"Error extracting page {page_num + 1} from {filename}: {e}")
+                    continue
+            
+            print(f"Processed uploaded PDF: {filename}, {len(documents)} pages")
+            
+        except Exception as e:
+            print(f"Error processing uploaded file {uploaded_file.name}: {e}")
+            
         return documents
     
     def get_plc_knowledge_base(self):
@@ -219,19 +355,30 @@ class SiemensPLCQAAssistant:
         if self.vectorstore is None:
             raise ValueError("Vector store not initialized. Please load and process documents first.")
         
-        # Use HuggingFace pipeline for free LLM
+        # Use HuggingFace pipeline for free LLM - improved for QA
         from transformers import pipeline
         
-        # Initialize a free text generation pipeline
-        llm_pipeline = pipeline(
-            "text-generation",
-            model="microsoft/DialoGPT-medium",
-            tokenizer="microsoft/DialoGPT-medium",
-            max_length=512,
-            temperature=0.7,
-            do_sample=True,
-            pad_token_id=50256
-        )
+        try:
+            # Try to use a better QA model first
+            llm_pipeline = pipeline(
+                "text2text-generation",
+                model="google/flan-t5-base",
+                max_length=512,
+                temperature=0.3,
+                do_sample=True
+            )
+            print("Using FLAN-T5 model for better QA performance")
+        except Exception as e:
+            print(f"FLAN-T5 not available ({e}), falling back to GPT-2")
+            # Fallback to GPT-2 for text generation
+            llm_pipeline = pipeline(
+                "text-generation",
+                model="gpt2",
+                max_length=512,
+                temperature=0.7,
+                do_sample=True,
+                pad_token_id=50256
+            )
         
         llm = HuggingFacePipeline(pipeline=llm_pipeline)
         
